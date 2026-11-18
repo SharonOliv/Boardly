@@ -2,7 +2,7 @@
 
 A Trello-style team project board built with FastAPI, React and PostgreSQL. Teams organise work into workspaces and boards, drag cards between lists, comment on tasks, and see every change appear live for everyone on the board.
 
-**Live demo:** https://YOUR-VERCEL-URL.vercel.app
+**Live demo:** https://boardly-lxjl.vercel.app/
 
 The backend runs on a free tier, so the first request after a period of inactivity can take about a minute while the server wakes up. All data in the demo is fake. Create your own account on the sign-up page to try it.
 
