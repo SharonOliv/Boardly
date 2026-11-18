@@ -1,4 +1,4 @@
-import { CSSProperties, FormEvent, ReactNode, useEffect, useState } from "react";
+import { CSSProperties, FormEvent, ReactNode, RefObject, useEffect, useId, useRef, useState } from "react";
 
 export function Logo({ size = 28 }: { size?: number }) {
   return (
@@ -17,11 +17,11 @@ export function Avatar({ name, size = 28, title }: { name: string; size?: number
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
   return (
     <span
-      title={title ?? name}
+      role="img" aria-label={title ?? name} title={title ?? name}
       className="inline-grid shrink-0 place-items-center rounded-full font-semibold text-white ring-2 ring-surface"
       style={{ width: size, height: size, fontSize: size * 0.4, background: `hsl(${hue} 55% 42%)` }}
     >
-      {initials}
+      <span aria-hidden>{initials}</span>
     </span>
   );
 }
@@ -56,17 +56,42 @@ export function useTheme() {
 export function ThemeToggle() {
   const { dark, toggle } = useTheme();
   return (
-    <button className="btn btn-ghost !px-2.5" onClick={toggle} aria-label={dark ? "Switch to light mode" : "Switch to dark mode"} title="Toggle theme">
+    <button className="btn btn-ghost !px-2.5" onClick={toggle} aria-label={dark ? "Switch to light mode" : "Switch to dark mode"} aria-pressed={dark} title="Toggle theme">
       {dark ? (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
+        <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
       ) : (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>
+        <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>
       )}
     </button>
   );
 }
 
-export function Modal({ title, onClose, children, wide }: { title?: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+/** Keeps keyboard focus inside a dialog, and gives focus back to whatever opened it when it closes. */
+export function useFocusTrap(ref: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const el = ref.current;
+    const opener = document.activeElement as HTMLElement | null;
+    if (el && !el.contains(document.activeElement)) el.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || !el) return;
+      const focusable = el.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === el)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("keydown", onKey); opener?.focus?.(); };
+  }, [ref]);
+}
+
+export function Modal({ title, label, onClose, children, wide }: { title?: string; label?: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useFocusTrap(ref);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -74,11 +99,15 @@ export function Modal({ title, onClose, children, wide }: { title?: string; onCl
   }, [onClose]);
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 p-3 sm:p-8" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal className={`pop my-auto w-full ${wide ? "max-w-3xl" : "max-w-md"} rounded-2xl bg-surface p-5 shadow-2xl sm:p-6`}>
+      <div
+        ref={ref} tabIndex={-1} role="dialog" aria-modal="true"
+        aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : label}
+        className={`pop my-auto w-full ${wide ? "max-w-3xl" : "max-w-md"} rounded-2xl bg-surface p-5 shadow-2xl outline-none sm:p-6`}
+      >
         {title && (
           <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="font-display text-xl font-semibold">{title}</h2>
-            <button className="btn btn-ghost !px-2 !py-1" onClick={onClose} aria-label="Close">✕</button>
+            <h2 id={titleId} className="font-display text-xl font-semibold">{title}</h2>
+            <button className="btn btn-ghost !px-2 !py-1" onClick={onClose} aria-label="Close dialog"><span aria-hidden>✕</span></button>
           </div>
         )}
         {children}
@@ -104,8 +133,8 @@ export function NameModal({ title, placeholder, submit, onClose, onSubmit }: {
   return (
     <Modal title={title} onClose={onClose}>
       <form onSubmit={go} className="space-y-3">
-        <input autoFocus className="input" placeholder={placeholder} value={name} maxLength={100} onChange={(e) => setName(e.target.value)} />
-        {error && <p className="text-sm text-danger">{error}</p>}
+        <input autoFocus className="input" aria-label="Name" placeholder={placeholder} value={name} maxLength={100} onChange={(e) => setName(e.target.value)} />
+        {error && <p role="alert" className="text-sm text-danger">{error}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn" disabled={busy || !name.trim()}>{submit}</button>

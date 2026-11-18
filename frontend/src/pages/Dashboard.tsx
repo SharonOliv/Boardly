@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errMsg, Member, Workspace } from "../api";
@@ -38,7 +38,7 @@ function MembersModal({ ws, onClose }: { ws: Workspace; onClose: () => void }) {
         <form onSubmit={invite} className="space-y-2">
           <p className="text-sm font-semibold">Add someone who already has a Boardly account</p>
           <div className="flex gap-2">
-            <input className="input" type="email" placeholder="teammate@email.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <input className="input" type="email" aria-label="Teammate email" placeholder="teammate@email.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
             <select className="input !w-auto" value={role} onChange={(e) => setRole(e.target.value)} aria-label="Role">
               <option value="member">Member</option><option value="viewer">Viewer</option>
             </select>
@@ -59,6 +59,7 @@ export default function Dashboard() {
   const [newWs, setNewWs] = useState(false);
   const [newBoardFor, setNewBoardFor] = useState<Workspace | null>(null);
   const [membersFor, setMembersFor] = useState<Workspace | null>(null);
+  useEffect(() => { document.title = "Your workspaces · Boardly"; }, []);
 
   const createWorkspace = async (name: string) => {
     try { await api.post("/workspaces", { name }); qc.invalidateQueries({ queryKey: ["workspaces"] }); }
@@ -104,10 +105,10 @@ export default function Dashboard() {
 
         <div className="space-y-10">
           {workspaces?.map((ws) => (
-            <section key={ws.id}>
+            <section key={ws.id} aria-labelledby={`ws-${ws.id}`}>
               <div className="mb-3 flex flex-wrap items-center gap-3">
-                <h2 className="font-display text-xl font-semibold">{ws.name}</h2>
-                <button className="rounded-md bg-sunken px-2 py-1 text-xs font-semibold text-muted hover:text-ink" onClick={() => setMembersFor(ws)}>
+                <h2 id={`ws-${ws.id}`} className="font-display text-xl font-semibold">{ws.name}</h2>
+                <button aria-label={`View people in ${ws.name}`} className="rounded-md bg-sunken px-2 py-1 text-xs font-semibold text-muted hover:text-ink" onClick={() => setMembersFor(ws)}>
                   {ws.member_count} {ws.member_count === 1 ? "person" : "people"} · {ws.role}
                 </button>
               </div>
@@ -118,7 +119,7 @@ export default function Dashboard() {
                   </Link>
                 ))}
                 {ws.role !== "viewer" && (
-                  <button onClick={() => setNewBoardFor(ws)} className="min-h-[76px] rounded-xl border border-dashed border-line p-4 text-left font-semibold text-muted transition hover:border-accent hover:text-accent">
+                  <button aria-label={`New board in ${ws.name}`} onClick={() => setNewBoardFor(ws)} className="min-h-[76px] rounded-xl border border-dashed border-line p-4 text-left font-semibold text-muted transition hover:border-accent hover:text-accent">
                     + New board
                   </button>
                 )}

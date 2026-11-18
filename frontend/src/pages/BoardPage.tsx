@@ -1,11 +1,11 @@
-import { FormEvent, useCallback, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  DndContext, DragEndEvent, DragOverlay, DragStartEvent, MouseSensor, TouchSensor,
-  closestCorners, useDroppable, useSensor, useSensors,
-} from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+  Announcements, DndContext, DragEndEvent, DragOverlay, DragStartEvent, KeyboardSensor, MouseSensor, TouchSensor,
+   closestCorners, useDroppable, useSensor, useSensors,
+ } from "@dnd-kit/core";
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { api, Board, Card, errMsg, ListT, Member } from "../api";
 import { useAuth } from "../auth";
@@ -64,9 +64,10 @@ function CardTile({ card, members, onClick, overlay }: { card: Card; members: Me
       )}
       <p className="break-words text-[15px] font-medium leading-snug">{card.title}</p>
       <div className="mt-2 flex items-center gap-2 text-xs text-muted">
-        {card.priority === "high" && <span className="font-semibold text-danger">High</span>}
+        <span className="sr-only">Priority: {card.priority}.</span>
++        {card.priority === "high" && <span aria-hidden className="font-semibold text-danger">High</span>}
         {due && <span className={`rounded-md px-1.5 py-0.5 font-semibold ${due.cls}`}>{due.text}</span>}
-        {card.comment_count > 0 && <span title="Comments">💬 {card.comment_count}</span>}
+        {card.comment_count > 0 && <span><span aria-hidden>💬 {card.comment_count}</span><span className="sr-only">{card.comment_count} comments</span></span>}
         <span className="flex-1" />
         {assignee && <Avatar name={assignee.name} size={24} />}
       </div>
@@ -80,7 +81,7 @@ function SortableCard({ card, members, canEdit, onOpen }: { card: Card; members:
     <div
       ref={setNodeRef} {...attributes} {...listeners}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
-      onKeyDown={(e) => e.key === "Enter" && onOpen()}
+      onKeyDown={(e) => { (listeners as any)?.onKeyDown?.(e); if (e.key === "Enter" && !e.defaultPrevented) onOpen(); }}
       aria-label={`Card: ${card.title}`}
     >
       <CardTile card={card} members={members} onClick={onOpen} />
@@ -102,7 +103,7 @@ function AddCard({ onAdd }: { onAdd: (title: string) => Promise<void> }) {
   return (
     <form onSubmit={submit} className="space-y-2 p-2">
       <textarea
-        autoFocus className="input min-h-[64px] resize-none" placeholder="What needs to be done?" value={title} maxLength={200}
+        autoFocus className="input min-h-[64px] resize-none" aria-label="New card title" placeholder="What needs to be done?" value={title} maxLength={200}
         onChange={(e) => setTitle(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(e as any); } if (e.key === "Escape") setOpen(false); }}
       />
@@ -123,7 +124,7 @@ function Column({ list, cards, tone, members, canEdit, onOpen, onRename, onDelet
   const editing = useRef(false);
   if (!editing.current && title !== list.title) setTitle(list.title);
   return (
-    <section className="flex max-h-full w-[290px] shrink-0 flex-col rounded-2xl bg-sunken ring-1 ring-line" style={{ borderTop: `3px solid ${tone}` }}>
+    <section aria-label={`List: ${list.title}`} className="flex max-h-full w-[290px] shrink-0 flex-col rounded-2xl bg-sunken ring-1 ring-line" style={{ borderTop: `3px solid ${tone}` }}>
       <div className="flex items-center gap-2 px-3 pb-1 pt-2.5">
         <input
           className="min-w-0 flex-1 rounded-md bg-transparent px-1 py-0.5 font-display text-[17px] font-semibold hover:bg-surface focus:bg-surface"
@@ -158,7 +159,7 @@ function AddList({ onAdd }: { onAdd: (title: string) => Promise<void> }) {
   if (!open) return <button className="h-12 w-[290px] shrink-0 rounded-2xl border border-dashed border-line px-4 text-left font-semibold text-muted hover:border-accent hover:text-accent" onClick={() => setOpen(true)}>+ Add another list</button>;
   return (
     <form onSubmit={submit} className="w-[290px] shrink-0 space-y-2 rounded-2xl bg-sunken p-3 ring-1 ring-line">
-      <input autoFocus className="input" placeholder="List name" value={title} maxLength={100} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setOpen(false)} />
+      <input autoFocus className="input" aria-label="New list name" placeholder="List name" value={title} maxLength={100} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setOpen(false)} />
       <div className="flex gap-2"><button className="btn !py-1.5" disabled={!title.trim()}>Add list</button><button type="button" className="btn btn-ghost !py-1.5" onClick={() => setOpen(false)}>Cancel</button></div>
     </form>
   );
@@ -197,9 +198,15 @@ export default function BoardPage() {
 
   const { online, connected, typingNames, sendTyping } = useBoardSocket(id, onEvent);
 
+  useEffect(() => { document.title = board ? `${board.name} · Boardly` : "Boardly"; }, [board?.name]);
+
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } })
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+      keyboardCodes: { start: ["Space"], cancel: ["Escape"], end: ["Space"] }, // Enter stays free for opening the card
+    })
   );
 
   const labels = useMemo(() => [...new Set(board?.lists.flatMap((l) => l.cards.flatMap((c) => c.labels)) ?? [])].sort(), [board]);
@@ -220,6 +227,22 @@ export default function BoardPage() {
 
   const canEdit = board.role !== "viewer";
   const activeCard = board.lists.flatMap((l) => l.cards).find((c) => c.id === activeId);
+
+  // Spoken feedback for screen readers while a card is picked up and moved.
+  const cardTitle = (key: unknown) => board.lists.flatMap((l) => l.cards).find((c) => `card-${c.id}` === String(key))?.title ?? "card";
+  const whereIs = (key: unknown) => {
+    const s = String(key);
+    const list = s.startsWith("list-")
+      ? board.lists.find((l) => `list-${l.id}` === s)
+      : board.lists.find((l) => l.cards.some((c) => `card-${c.id}` === s));
+    return list ? `list ${list.title}` : "the board";
+  };
+  const announcements: Announcements = {
+    onDragStart: ({ active }) => `Picked up card ${cardTitle(active.id)}.`,
+    onDragOver: ({ active, over }) => (over ? `Card ${cardTitle(active.id)} is over ${whereIs(over.id)}.` : `Card ${cardTitle(active.id)} is not over a list.`),
+    onDragEnd: ({ active, over }) => (over ? `Dropped card ${cardTitle(active.id)} in ${whereIs(over.id)}.` : `Dropped card ${cardTitle(active.id)}. It was not moved.`),
+    onDragCancel: ({ active }) => `Cancelled. Card ${cardTitle(active.id)} was not moved.`,
+  };
 
   const moveCard = async (cardId: number, toListId: number, position: number) => {
     movingRef.current++;
@@ -275,10 +298,10 @@ export default function BoardPage() {
             <h1 className="truncate font-display text-xl font-bold leading-tight">{board.name}</h1>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <span className={`flex items-center gap-1.5 text-xs font-medium ${connected ? "text-[#1f9d6b]" : "text-muted"}`} title={connected ? "Live updates on" : "Reconnecting…"}>
+            <span role="status" className={`flex items-center gap-1.5 text-xs font-medium ${connected ? "text-[#0f7a55] dark:text-[#4ade80]" : "text-muted"}`} title={connected ? "Live updates on" : "Reconnecting…"}>
               <span className={`h-2 w-2 rounded-full ${connected ? "bg-[#1f9d6b]" : "bg-muted"}`} />{connected ? "Live" : "Offline"}
             </span>
-            <div className="flex -space-x-2" aria-label="People viewing this board">
+            <div role="group" className="flex -space-x-2" aria-label="People viewing this board">
               {online.slice(0, 5).map((p) => <Avatar key={p.id} name={p.name} size={30} title={p.id === user?.id ? `${p.name} (you)` : p.name} />)}
               {online.length > 5 && <span className="grid h-[30px] w-[30px] place-items-center rounded-full bg-sunken text-xs font-semibold ring-2 ring-surface">+{online.length - 5}</span>}
             </div>
@@ -305,6 +328,7 @@ export default function BoardPage() {
       </header>
 
       <DndContext sensors={sensors} collisionDetection={closestCorners}
+        accessibility={{ announcements, screenReaderInstructions: { draggable: "To pick up a card, press Space. Use the arrow keys to move it, then press Space to drop it or Escape to cancel. Press Enter to open the card. You can also change a card's list from inside the card." } }}
         onDragStart={(e: DragStartEvent) => setActiveId(Number(String(e.active.id).replace("card-", "")))}
         onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
         <main className="scroll-x min-h-0 flex-1 overflow-x-auto overflow-y-hidden">

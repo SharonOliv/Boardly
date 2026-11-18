@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent,useEffect, useState } from "react";
 import { useAuth } from "../auth";
 import { errMsg } from "../api";
 import { Logo, ThemeToggle } from "../components/ui";
@@ -11,7 +11,7 @@ const COLS = [
 
 function Preview() {
   return (
-    <div className="mx-auto w-full max-w-xl -rotate-2 rounded-2xl bg-sunken/70 p-4 shadow-xl ring-1 ring-line">
+    <div aria-hidden className="mx-auto w-full max-w-xl -rotate-2 rounded-2xl bg-sunken/70 p-4 shadow-xl ring-1 ring-line">
       <div className="grid grid-cols-3 gap-3">
         {COLS.map((c) => (
           <div key={c.t} className="rounded-xl bg-bg p-2.5" style={{ borderTop: `3px solid ${c.tone}` }}>
@@ -39,6 +39,7 @@ export default function AuthPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  useEffect(() => { document.title = mode === "login" ? "Sign in · Boardly" : "Create account · Boardly"; }, [mode]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -58,7 +59,7 @@ export default function AuthPage() {
       <aside className="hidden flex-col justify-between overflow-hidden bg-sunken p-10 lg:flex">
         <div className="flex items-center gap-2.5"><Logo /><span className="font-display text-xl font-bold">Boardly</span></div>
         <div>
-          <h1 className="mb-3 max-w-md font-display text-5xl font-bold leading-[1.05] tracking-tight">Plan together and watch the board move.</h1>
+          <p className="mb-3 max-w-md font-display text-5xl font-bold leading-[1.05] tracking-tight">Plan together and watch the board move.</p>
           <p className="mb-10 max-w-sm text-muted">Every card you drag shows up instantly for everyone on your team.</p>
           <Preview />
         </div>
@@ -69,14 +70,14 @@ export default function AuthPage() {
         <div className="absolute right-4 top-4"><ThemeToggle /></div>
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-2.5 lg:hidden"><Logo /><span className="font-display text-xl font-bold">Boardly</span></div>
-          <h2 className="mb-1 font-display text-3xl font-bold">{mode === "login" ? "Welcome back" : "Create your account"}</h2>
+          <h1 className="mb-1 font-display text-3xl font-bold">{mode === "login" ? "Welcome back" : "Create your account"}</h1>
           <p className="mb-6 text-muted">{mode === "login" ? "Sign in to open your boards." : "It takes less than a minute."}</p>
           <form onSubmit={submit} className="space-y-3">
             {mode === "signup" && (
-              <input className="input" placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" />
+              <input className="input" aria-label="Full name" placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" />
             )}
-            <input className="input" type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
-            <input className="input" type="password" placeholder="Password (6+ characters)" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} autoComplete={mode === "login" ? "current-password" : "new-password"} />
+            <input className="input" aria-label="Email" type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+            <input className="input" aria-label="Password" type="password" placeholder="Password (6+ characters)" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} autoComplete={mode === "login" ? "current-password" : "new-password"} />
             {error && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
             <button className="btn w-full !py-2.5" disabled={busy}>{busy ? "One moment…" : mode === "login" ? "Sign in" : "Create account"}</button>
           </form>

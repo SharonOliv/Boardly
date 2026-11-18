@@ -1,3 +1,6 @@
+import logging
+import time
+from collections import defaultdict
 from datetime import date, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -6,12 +9,14 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from . import ai
 from . import models as m
 from .auth import current_user, hash_pw, make_token, user_from_token, verify_pw
 from .db import SessionLocal, get_db
 from .ws import hub
 
 router = APIRouter()
+log = logging.getLogger("boardly")
 PRIORITIES = ("low", "medium", "high")
 
 
@@ -393,6 +398,64 @@ async def delete_card(cid: int, db: Session = Depends(get_db), user: m.User = De
     await emit(db, board.id, user, "card_deleted", f'deleted "{title}"', card_id=cid)
     return {"ok": True}
 
+# ───────────────────────── AI subtask suggestions (human approves) ─────────────────────────
+_ai_calls: dict[int, list[float]] = defaultdict(list)
+
+
+def _ai_rate_limit(user_id: int, limit: int = 10, window: float = 60.0) -> None:
+    now = time.monotonic()
+    recent = [t for t in _ai_calls[user_id] if now - t < window]
+    if len(recent) >= limit:
+        raise HTTPException(429, "Too many AI requests. Try again in a minute.")
+    _ai_calls[user_id] = recent + [now]
+
+
+@router.get("/config")
+def public_config():
+    return {"ai_enabled": ai.ai_enabled()}
+
+
+@router.post("/cards/{cid}/suggest-subtasks")
+def suggest_subtasks(cid: int, db: Session = Depends(get_db), user: m.User = Depends(current_user)):
+    """Returns draft suggestions only. Nothing is created until the user approves them."""
+    card, _ = card_or_404(db, cid, user)
+    if not ai.ai_enabled():
+        raise HTTPException(503, "AI suggestions are not configured on this server")
+    _ai_rate_limit(user.id)
+    try:
+        suggestions = ai.suggest_subtasks(card.title, card.description)
+    except Exception:
+        log.exception("ai_suggest_failed", extra={"card_id": cid, "user_id": user.id})
+        raise HTTPException(502, "The AI service did not respond. Please try again.")
+    log.info("ai_suggestions_generated", extra={"card_id": cid, "user_id": user.id, "count": len(suggestions)})
+    return {"suggestions": suggestions}
+
+
+class SubtasksIn(BaseModel):
+    titles: list[str]
+    source: str = "manual"  # "ai" when the titles came from a suggestion the user approved
+
+
+@router.post("/cards/{cid}/subtasks")
+async def add_subtasks(cid: int, data: SubtasksIn, db: Session = Depends(get_db), user: m.User = Depends(current_user)):
+    card, board = card_or_404(db, cid, user)
+    titles = [t for t in (" ".join(x.split())[:200] for x in data.titles) if t][:10]
+    if not titles:
+        raise HTTPException(400, "Select at least one subtask")
+    nxt = db.scalar(
+        select(func.min(m.Card.position)).where(m.Card.list_id == card.list_id, m.Card.position > card.position)
+    )
+    n, created = len(titles), []
+    for i, title in enumerate(titles, start=1):  # slot them right after the parent card
+        pos = card.position + (nxt - card.position) * i / (n + 1) if nxt is not None else card.position + 1000 * i
+        created.append(m.Card(list_id=card.list_id, title=title, position=pos, labels="subtask"))
+    db.add_all(created)
+    db.commit()
+    origin = "AI-suggested subtask" if data.source == "ai" else "subtask"
+    await emit(db, board.id, user, "card_created",
+               f'added {n} {origin}{"s" if n > 1 else ""} after "{card.title}" (approved by {user.name})', card_id=card.id)
+    log.info("subtasks_added", extra={"card_id": cid, "user_id": user.id, "count": n, "source": data.source})
+    return [card_out(c) for c in created]
 
 # ───────────────────────── comments ─────────────────────────
 class CommentIn(BaseModel):
@@ -438,6 +501,7 @@ async def board_socket(ws: WebSocket, bid: int, token: str = ""):
         db.close()
 
     await hub.connect(bid, ws, info)
+    log.info("ws_connected", extra={"board_id": bid, "user_id": user.id})
     try:
         while True:
             msg = await ws.receive_json()
@@ -451,3 +515,5 @@ async def board_socket(ws: WebSocket, bid: int, token: str = ""):
         pass
     finally:
         await hub.disconnect(bid, ws)
+        log.info("ws_disconnected", extra={"board_id": bid, "user_id": user.id})
+    
